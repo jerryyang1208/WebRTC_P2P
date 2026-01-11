@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC 一对一视频会议</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #1a1a1a;
+            color: white;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #4CAF50;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background-color: #4CAF50;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: #45a049;
+        }
+
+        .btn-danger {
+            background-color: #f44336;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background-color: #da190b;
+        }
+
+        .btn-warning {
+            background-color: #ff9800;
+            color: white;
+        }
+
+        .btn-warning:hover {
+            background-color: #e68900;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .video-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .video-wrapper {
+            position: relative;
+            background-color: #333;
+            border-radius: 10px;
+            overflow: hidden;
+            aspect-ratio: 16/9;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* 镜像翻转 */
+        }
+
+        .video-label {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .status {
+            text-align: center;
+            margin-bottom: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            background-color: #333;
+        }
+
+        .status.connected {
+            background-color: #4CAF50;
+        }
+
+        .status.disconnected {
+            background-color: #f44336;
+        }
+
+        .status.connecting {
+            background-color: #ff9800;
+        }
+
+        .info-panel {
+            background-color: #333;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+
+        .info-panel h3 {
+            margin-bottom: 10px;
+            color: #4CAF50;
+        }
+
+        .info-item {
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        @media (max-width: 768px) {
+            .video-container {
+                grid-template-columns: 1fr;
+            }
+            
+            .controls {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            button {
+                width: 200px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎥 WebRTC 一对一视频会议</h1>
+        
+        <div class="status disconnected" id="status">
+            未连接
+        </div>
+
+        <div class="controls">
+            <button id="startBtn" class="btn-primary">开启摄像头</button>
+            <button id="callBtn" class="btn-warning" disabled>发起通话</button>
+            <button id="hangupBtn" class="btn-danger" disabled>挂断</button>
+        </div>
+
+        <div class="video-container">
+            <div class="video-wrapper">
+                <video id="localVideo" autoplay muted playsinline></video>
+                <div class="video-label">本地视频</div>
+            </div>
+            <div class="video-wrapper">
+                <video id="remoteVideo" autoplay playsinline></video>
+                <div class="video-label">远程视频</div>
+            </div>
+        </div>
+
+        <div class="info-panel">
+            <h3>连接信息</h3>
+            <div class="info-item">我的ID: <span id="myId">未获取</span></div>
+            <div class="info-item">对方ID: <span id="remoteId">未选择</span></div>
+            <div class="info-item">连接状态: <span id="connectionStatus">未连接</span></div>
+        </div>
+    </div>
+
+    <script>
+        class WebRTCClient {
+            constructor() {
+                this.localVideo = document.getElementById('localVideo');
+                this.remoteVideo = document.getElementById('remoteVideo');
+                this.startBtn = document.getElementById('startBtn');
+                this.callBtn = document.getElementById('callBtn');
+                this.hangupBtn = document.getElementById('hangupBtn');
+                this.status = document.getElementById('status');
+                this.myIdSpan = document.getElementById('myId');
+                this.remoteIdSpan = document.getElementById('remoteId');
+                this.connectionStatusSpan = document.getElementById('connectionStatus');
+
+                this.localStream = null;
+                this.remoteStream = null;
+                this.peerConnection = null;
+                this.websocket = null;
+                this.myId = null;
+                this.remoteId = null;
+                this.isInitiator = false;
+
+                this.init();
+            }
+
+            init() {
+                this.setupEventListeners();
+                this.connectWebSocket();
+            }
+
+            setupEventListeners() {
+                this.startBtn.addEventListener('click', () => this.startLocalVideo());
+                this.callBtn.addEventListener('click', () => this.startCall());
+                this.hangupBtn.addEventListener('click', () => this.hangUp());
+            }
+
+            connectWebSocket() {
+                // 修改为连接当前服务器的端口（8081）
+                this.websocket = new WebSocket('ws://localhost:8081');
+
+                this.websocket.onopen = () => {
+                    this.updateStatus('已连接到信令服务器', 'connecting');
+                };
+
+                this.websocket.onmessage = (event) => {
+                    this.handleSignalingMessage(event.data);
+                };
+
+                this.websocket.onclose = () => {
+                    this.updateStatus('与信令服务器断开连接', 'disconnected');
+                };
+
+                this.websocket.onerror = (error) => {
+                    console.error('WebSocket错误:', error);
+                    this.updateStatus('连接错误', 'disconnected');
+                };
+            }
+
+            handleSignalingMessage(data) {
+                const message = JSON.parse(data);
+                
+                switch (message.type) {
+                    case 'client-id':
+                        this.myId = message.id;
+                        this.myIdSpan.textContent = this.myId;
+                        this.updateStatus('已获取用户ID，请等待其他用户加入', 'connecting');
+                        break;
+                    
+                    case 'user-joined':
+                        this.addUser(message.id);
+                        break;
+                    
+                    case 'user-left':
+                        this.removeUser(message.id);
+                        break;
+                    
+                    case 'offer':
+                        this.handleOffer(message);
+                        break;
+                    
+                    case 'answer':
+                        this.handleAnswer(message);
+                        break;
+                    
+                    case 'ice-candidate':
+                        this.handleIceCandidate(message);
+                        break;
+                }
+            }
+
+            addUser(userId) {
+                if (!this.remoteId) {
+                    this.remoteId = userId;
+                    this.remoteIdSpan.textContent = userId;
+                    this.callBtn.disabled = false;
+                    console.log(`用户 ${userId} 加入，可以开始通话`);
+                    this.updateStatus('对方用户已加入，可以发起通话', 'connected');
+                }
+            }
+
+            removeUser(userId) {
+                if (this.remoteId === userId) {
+                    this.remoteId = null;
+                    this.remoteIdSpan.textContent = '未选择';
+                    this.callBtn.disabled = true;
+                    this.hangupBtn.disabled = true;
+                    this.closePeerConnection();
+                    this.updateConnectionStatus('对方已离开');
+                    this.updateStatus('对方用户已离开', 'disconnected');
+                }
+            }
+
+            async startLocalVideo() {
+                try {
+                    this.localStream = await navigator.mediaDevices.getUserMedia({
+                        video: { 
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 }
+                        },
+                        audio: true
+                    });
+                    
+                    this.localVideo.srcObject = this.localStream;
+                    this.startBtn.disabled = true;
+                    this.callBtn.disabled = !this.remoteId;
+                    this.updateStatus('摄像头已启动，等待其他用户加入', 'connected');
+                    
+                } catch (error) {
+                    console.error('无法获取媒体设备:', error);
+                    alert('无法访问摄像头和麦克风，请检查权限设置');
+                }
+            }
+
+            startCall() {
+                if (!this.localStream || !this.remoteId) {
+                    alert('请先开启摄像头并等待其他用户加入');
+                    return;
+                }
+
+                this.isInitiator = true;
+                this.createPeerConnection();
+                this.addLocalStreamToPeerConnection();
+                
+                this.peerConnection.createOffer()
+                    .then(offer => this.peerConnection.setLocalDescription(offer))
+                    .then(() => {
+                        this.sendSignalingMessage({
+                            type: 'offer',
+                            sdp: this.peerConnection.localDescription,
+                            target: this.remoteId
+                        });
+                    })
+                    .catch(error => {
+                        console.error('创建offer失败:', error);
+                    });
+
+                this.callBtn.disabled = true;
+                this.hangupBtn.disabled = false;
+                this.updateConnectionStatus('正在建立连接...');
+            }
+
+            createPeerConnection() {
+                const configuration = {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' }
+                    ]
+                };
+
+                this.peerConnection = new RTCPeerConnection(configuration);
+
+                this.peerConnection.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        this.sendSignalingMessage({
+                            type: 'ice-candidate',
+                            candidate: event.candidate,
+                            target: this.remoteId
+                        });
+                    }
+                };
+
+                this.peerConnection.ontrack = (event) => {
+                    console.log('收到远程流');
+                    this.remoteStream = event.streams[0];
+                    this.remoteVideo.srcObject = this.remoteStream;
+                    this.updateConnectionStatus('连接成功');
+                };
+
+                this.peerConnection.onconnectionstatechange = () => {
+                    console.log('连接状态:', this.peerConnection.connectionState);
+                    switch (this.peerConnection.connectionState) {
+                        case 'connected':
+                            this.updateConnectionStatus('连接成功');
+                            this.updateStatus('通话已连接', 'connected');
+                            break;
+                        case 'disconnected':
+                        case 'failed':
+                            this.updateConnectionStatus('连接断开');
+                            this.updateStatus('连接断开', 'disconnected');
+                            this.hangUp();
+                            break;
+                        case 'closed':
+                            this.updateConnectionStatus('连接已关闭');
+                            break;
+                    }
+                };
+            }
+
+            addLocalStreamToPeerConnection() {
+                if (this.localStream) {
+                    this.localStream.getTracks().forEach(track => {
+                        this.peerConnection.addTrack(track, this.localStream);
+                    });
+                }
+            }
+
+            handleOffer(message) {
+                if (this.isInitiator) return;
+
+                this.remoteId = message.from;
+                this.remoteIdSpan.textContent = this.remoteId;
+                
+                this.createPeerConnection();
+                this.addLocalStreamToPeerConnection();
+
+                this.peerConnection.setRemoteDescription(message.sdp)
+                    .then(() => this.peerConnection.createAnswer())
+                    .then(answer => this.peerConnection.setLocalDescription(answer))
+                    .then(() => {
+                        this.sendSignalingMessage({
+                            type: 'answer',
+                            sdp: this.peerConnection.localDescription,
+                            target: this.remoteId
+                        });
+                    })
+                    .then(() => {
+                        this.callBtn.disabled = true;
+                        this.hangupBtn.disabled = false;
+                        this.updateConnectionStatus('正在建立连接...');
+                    })
+                    .catch(error => {
+                        console.error('处理offer失败:', error);
+                    });
+            }
+
+            handleAnswer(message) {
+                this.peerConnection.setRemoteDescription(message.sdp)
+                    .then(() => {
+                        this.updateConnectionStatus('连接建立中...');
+                    })
+                    .catch(error => {
+                        console.error('处理answer失败:', error);
+                    });
+            }
+
+            handleIceCandidate(message) {
+                if (this.peerConnection) {
+                    this.peerConnection.addIceCandidate(message.candidate)
+                        .catch(error => {
+                            console.error('添加ICE候选者失败:', error);
+                        });
+                }
+            }
+
+            sendSignalingMessage(message) {
+                if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+                    this.websocket.send(JSON.stringify(message));
+                } else {
+                    console.error('WebSocket未连接，无法发送消息');
+                }
+            }
+
+            hangUp() {
+                this.closePeerConnection();
+                
+                if (this.remoteId) {
+                    this.sendSignalingMessage({
+                        type: 'hang-up',
+                        target: this.remoteId
+                    });
+                }
+
+                this.callBtn.disabled = false;
+                this.hangupBtn.disabled = true;
+                this.updateConnectionStatus('通话已结束');
+                this.updateStatus('通话已结束，可以重新开始', 'disconnected');
+            }
+
+            closePeerConnection() {
+                if (this.peerConnection) {
+                    this.peerConnection.close();
+                    this.peerConnection = null;
+                }
+                
+                if (this.remoteVideo.srcObject) {
+                    this.remoteVideo.srcObject = null;
+                }
+                
+                this.remoteStream = null;
+            }
+
+            updateStatus(text, type = '') {
+                this.status.textContent = text;
+                this.status.className = `status ${type}`;
+            }
+
+            updateConnectionStatus(status) {
+                this.connectionStatusSpan.textContent = status;
+            }
+        }
+
+        // 检查浏览器支持
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            alert('您的浏览器不支持WebRTC，请使用现代浏览器如Chrome、Firefox或Safari');
+        } else {
+            // 初始化应用
+            new WebRTCClient();
+        }
+    </script>
+</body>
+</html>
