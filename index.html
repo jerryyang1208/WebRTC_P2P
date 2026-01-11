@@ -148,6 +148,35 @@
             font-size: 14px;
         }
 
+        .server-input {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .server-input input {
+            padding: 10px;
+            width: 300px;
+            max-width: 100%;
+            border: none;
+            border-radius: 5px;
+            margin-right: 10px;
+        }
+
+        .server-input button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            background-color: #2196F3;
+            color: white;
+            transition: background-color 0.3s ease;
+        }
+
+        .server-input button:hover {
+            background-color: #0b7dda;
+        }
+
         @media (max-width: 768px) {
             .video-container {
                 grid-template-columns: 1fr;
@@ -161,6 +190,16 @@
             button {
                 width: 200px;
             }
+
+            .server-input input {
+                width: 250px;
+                margin-bottom: 10px;
+                margin-right: 0;
+            }
+
+            .server-input button {
+                width: 200px;
+            }
         }
     </style>
 </head>
@@ -168,6 +207,12 @@
     <div class="container">
         <h1>🎥 WebRTC 一对一视频会议</h1>
         
+        <!-- 信令服务器输入 -->
+        <div class="server-input">
+            <input type="text" id="serverUrl" placeholder="信令服务器地址 (例如: http://192.168.1.100:8081)" value="http://localhost:8081" />
+            <button id="connectBtn" class="btn-primary">连接</button>
+        </div>
+
         <div class="status disconnected" id="status">
             未连接
         </div>
@@ -209,6 +254,8 @@
                 this.myIdSpan = document.getElementById('myId');
                 this.remoteIdSpan = document.getElementById('remoteId');
                 this.connectionStatusSpan = document.getElementById('connectionStatus');
+                this.serverUrlInput = document.getElementById('serverUrl');
+                this.connectBtn = document.getElementById('connectBtn');
 
                 this.localStream = null;
                 this.remoteStream = null;
@@ -223,18 +270,31 @@
 
             init() {
                 this.setupEventListeners();
-                this.connectWebSocket();
+                // 默认连接到 localhost，用户可以更改
+                this.connectToServer();
             }
 
             setupEventListeners() {
                 this.startBtn.addEventListener('click', () => this.startLocalVideo());
                 this.callBtn.addEventListener('click', () => this.startCall());
                 this.hangupBtn.addEventListener('click', () => this.hangUp());
+                this.connectBtn.addEventListener('click', () => this.connectToServer());
             }
 
-            connectWebSocket() {
-                // 修改为连接当前服务器的端口（8081）
-                this.websocket = new WebSocket('ws://localhost:8081');
+            connectToServer() {
+                const serverUrl = this.serverUrlInput.value.trim();
+                if (!serverUrl) {
+                    alert('请输入信令服务器地址');
+                    return;
+                }
+
+                // 关闭现有的WebSocket连接
+                if (this.websocket) {
+                    this.websocket.close();
+                }
+
+                this.updateStatus('正在连接到信令服务器...', 'connecting');
+                this.websocket = new WebSocket(serverUrl.replace('http://', 'ws://').replace('https://', 'wss://'));
 
                 this.websocket.onopen = () => {
                     this.updateStatus('已连接到信令服务器', 'connecting');
@@ -506,14 +566,9 @@
                 this.connectionStatusSpan.textContent = status;
             }
         }
-
-        // 检查浏览器支持
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            alert('您的浏览器不支持WebRTC，请使用现代浏览器如Chrome、Firefox或Safari');
-        } else {
-            // 初始化应用
-            new WebRTCClient();
-        }
+        
+        new WebRTCClient();
+        
     </script>
 </body>
 </html>
