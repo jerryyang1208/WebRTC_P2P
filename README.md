@@ -1,3 +1,7 @@
+<div align="right">
+  <a href="README_en.md">English</a>
+</div>
+
 # WebRTC 一对一视频会议
 
 ## 项目介绍
@@ -22,3 +26,23 @@
 - Node.js
 - Express
 - ws (WebSocket 库)
+
+## 快速上手
+### 在终端安装依赖
+npm install ws express
+
+### 直接启动服务器
+node server.js
+
+### 访问浏览器页面
+打开两个浏览器 / 窗口，都访问 http://localhost:8081，在两个标签页中分别点击 "开启摄像头" 按钮，系统会自动分配用户 ID 并检测对方连接，将捕获到的音视频流显示对应区域，在任意一个标签页点击 "发起通话" 按钮即可开始通话，点击 "挂断" 按钮可结束通话。
+
+# 联系咨询
+
+笔者博客 https://www.zhihu.com/people/13-73-62-89-19
+
+本人邮箱：2022280099@email.szu.edu.cn 
+
+本项目会继续完善更新更多新功能与界面交互，欢迎提 issue 分享修改完善建议！
+
+感谢你的关注与青睐！
